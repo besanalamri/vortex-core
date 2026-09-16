@@ -1,25 +1,36 @@
-import { Button } from "@/components/ui/button";
-import { Loader2 } from "lucide-react";
-import { Streamdown } from 'streamdown';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { VortexEngine } from '@/game/VortexEngine';
+import { Button } from '@/components/ui/button';
+import { Activity, ArrowLeft, Gem, HelpCircle, Shield, ShoppingBag, Trophy, Zap } from 'lucide-react';
 
-/**
- * All content in this page are only for example, replace with your own feature implementation
- * When building pages, remember your instructions in Frontend Best Practices, Design Guide and Common Pitfalls
- */
+type Score = { name: string; score: number; crystals: number; date: string };
+type Save = { crystals: number; shield: number; multiplier: number; skins: string[]; activeSkin: string; scores: Score[] };
+const DEFAULT: Save = { crystals: 42, shield: 0, multiplier: 1, skins: ['#3cf7ff'], activeSkin: '#3cf7ff', scores: [{ name: 'NOVA', score: 1240, crystals: 88, date: 'TODAY' }, { name: 'VEX', score: 980, crystals: 62, date: 'YESTERDAY' }, { name: 'ION', score: 740, crystals: 39, date: '03:44' }] };
+const readSave = (): Save => { try { return { ...DEFAULT, ...JSON.parse(localStorage.getItem('vortex-core-save') || '{}') }; } catch { return DEFAULT; } };
+const save = (data: Save) => localStorage.setItem('vortex-core-save', JSON.stringify(data));
+
 export default function Home() {
-  // If theme is switchable in App.tsx, we can implement theme toggling like this:
-  // const { theme, toggleTheme } = useTheme();
-
-  return (
-    <div className="min-h-screen flex flex-col">
-      <main>
-        {/* Example: lucide-react for icons */}
-        <Loader2 className="animate-spin" />
-        Example Page
-        {/* Example: Streamdown for markdown rendering */}
-        <Streamdown>Any **markdown** content</Streamdown>
-        <Button variant="default">Example Button</Button>
-      </main>
-    </div>
-  );
+  const canvasRef = useRef<HTMLCanvasElement>(null); const engineRef = useRef<VortexEngine | undefined>(undefined);
+  const [screen, setScreen] = useState<'menu'|'playing'|'shop'|'scores'|'howto'|'gameover'>('menu');
+  const [data, setData] = useState<Save>(() => readSave()); const [score, setScore] = useState(0); const [runCrystals, setRunCrystals] = useState(0); const [speed, setSpeed] = useState(17); const [name, setName] = useState('');
+  const patch = (next: Partial<Save>) => setData(prev => { const updated = { ...prev, ...next }; save(updated); return updated; });
+  const loadout = useMemo(() => ({ shield: data.shield > 0, multiplier: data.multiplier, skin: data.activeSkin }), [data]);
+  useEffect(() => { if (!canvasRef.current) return; const engine = new VortexEngine(canvasRef.current, { score: (d,c,s) => { setScore(d); setRunCrystals(c); setSpeed(Math.round(s)); }, crystal: () => {}, gameover: (final, gained) => { setScore(final); setRunCrystals(gained); setScreen('gameover'); } }); engineRef.current=engine; return () => engine.dispose(); }, []);
+  const start = () => { setScreen('playing'); requestAnimationFrame(() => { engineRef.current?.setLoadout(loadout); engineRef.current?.start(); }); };
+  const back = () => { engineRef.current?.stop(); setScreen('menu'); };
+  const buy = (kind: 'shield'|'multiplier'|'skin') => { const prices = { shield: 60, multiplier: 120, skin: 180 }; const price=prices[kind]; if (data.crystals < price) return; if (kind==='shield') patch({ crystals:data.crystals-price, shield:data.shield+1 }); else if (kind==='multiplier') patch({ crystals:data.crystals-price, multiplier:Math.min(3,data.multiplier+1) }); else patch({ crystals:data.crystals-price, skins:[...data.skins,'#ff3bc8'], activeSkin:'#ff3bc8' }); };
+  const submitScore = () => { const list=[...data.scores,{name:(name.trim()||'PILOT').slice(0,10).toUpperCase(),score,crystals:runCrystals,date:'JUST NOW'}].sort((a,b)=>b.score-a.score).slice(0,10); patch({ scores:list }); setScreen('scores'); };
+  return <main className="vortex-shell">
+    <canvas ref={canvasRef} className="game-canvas" />
+    <div className="scanlines" />
+    <header className="topbar"><div className="brand"><span className="brand-mark">◎</span><div><b>VORTEX</b><small>CORE // RUNNER</small></div></div><div className="top-stats"><span><Gem size={15}/> {data.crystals.toString().padStart(3,'0')}</span><span><Trophy size={15}/> {Math.max(...data.scores.map(s=>s.score),0).toString().padStart(4,'0')}</span></div></header>
+    {screen==='playing' && <div className="hud"><div className="hud-pill"><span>DISTANCE</span><b>{score.toString().padStart(5,'0')}m</b></div><div className="hud-core"><span className="pulse-dot"/> CORE STABLE <small>{speed} KM/H</small></div><div className="hud-pill hud-right"><span>CRYSTALS</span><b><Gem size={16}/>{runCrystals}</b></div><div className="tip">SWIPE / A D <span>TO SHIFT LANES</span></div></div>}
+    {screen==='menu' && <section className="menu screen-card"><div className="eyebrow"><Activity size={15}/> SYSTEM ONLINE / SECTOR 07</div><h1>نواة<br/><em>الدوامـة</em></h1><p className="lead">اركب تيار الطاقة. تفادى الحواجز. اكسر حدود السرعة.</p><div className="menu-actions"><Button className="primary-cta" onClick={start}><Zap size={18}/> ابدأ الجري <span>ENTER</span></Button><Button className="ghost-cta" onClick={()=>setScreen('shop')}><ShoppingBag size={17}/> المتجر</Button><Button className="ghost-cta" onClick={()=>setScreen('scores')}><Trophy size={17}/> لوحة الصدارة</Button><Button className="ghost-cta" onClick={()=>setScreen('howto')}><HelpCircle size={17}/> كيف تلعب؟</Button></div><div className="menu-footer"><span>v1.0.7 // NEON BUILD</span><span>BEST RUN: {Math.max(...data.scores.map(s=>s.score),0)}M</span></div></section>}
+    {screen==='shop' && <Panel title="متجر التجهيزات" icon={<ShoppingBag/>} onBack={back}><div className="wallet"><Gem size={19}/> رصيد البلورات <b>{data.crystals}</b></div><div className="shop-grid"><ShopItem icon={<Shield/>} title="درع الحماية" detail={data.shield ? `مخزون: ${data.shield}` : 'ينجو من اصطدام واحد'} price={60} action={()=>buy('shield')} disabled={data.crystals<60}/><ShopItem icon={<Zap/>} title="مضاعف البلورات" detail={`x${data.multiplier} الحالي → x${Math.min(3,data.multiplier+1)}`} price={120} action={()=>buy('multiplier')} disabled={data.crystals<120||data.multiplier>=3}/><ShopItem icon={<span className="skin-swatch"/>} title="مظهر النبض البنفسجي" detail="لون نواة جديد" price={180} action={()=>buy('skin')} disabled={data.crystals<180||data.skins.includes('#ff3bc8')}/></div></Panel>}
+    {screen==='scores' && <Panel title="لوحة الصدارة" icon={<Trophy/>} onBack={back}><div className="scores-list">{data.scores.map((item,i)=><div className="score-row" key={`${item.name}-${i}`}><span className="rank">{String(i+1).padStart(2,'0')}</span><span className="score-name">{item.name}<small>{item.date}</small></span><span className="score-value">{item.score.toLocaleString()} <small>M</small></span><span className="score-crystals"><Gem size={13}/>{item.crystals}</span></div>)}</div></Panel>}
+    {screen==='howto' && <Panel title="مركز التدريب" icon={<HelpCircle/>} onBack={back}><div className="tutorial"><div><span className="step">01</span><b>تحكم بالنواة</b><p>اسحب يميناً ويساراً على الشاشة، أو استخدم A / D لتغيير المسار.</p></div><div><span className="step">02</span><b>اعبر الفجوات المضيئة</b><p>كل حاجز له فجوة واحدة. راقب اللون الوردي واتخذ القرار قبل فوات الأوان.</p></div><div><span className="step">03</span><b>اجمع بلورات الطاقة</b><p>البلورات داخل الفجوات. اشترِ درعاً أو فعّل مضاعفاً من المتجر.</p></div></div></Panel>}
+    {screen==='gameover' && <section className="gameover screen-card"><div className="glitch-label">SIGNAL LOST // RUN TERMINATED</div><h2>انقطع <em>التيار</em></h2><div className="final-stats"><div><span>المسافة</span><b>{score}M</b></div><div><span>البلورات</span><b><Gem size={18}/>{runCrystals}</b></div></div><label>سجّل نتيجتك <input autoFocus value={name} onChange={e=>setName(e.target.value)} placeholder="اسم الطيار" maxLength={10}/></label><Button className="primary-cta" onClick={submitScore}>حفظ النتيجة <Trophy size={17}/></Button><button className="text-link" onClick={start}>إعادة المحاولة</button></section>}
+  </main>;
 }
+function Panel({title,icon,onBack,children}:{title:string;icon:React.ReactNode;onBack:()=>void;children:React.ReactNode}){return <section className="panel screen-card"><button className="back-btn" onClick={onBack}><ArrowLeft size={17}/> رجوع</button><div className="panel-title">{icon}<div><span>VORTEX CORE / MODULE</span><h2>{title}</h2></div></div>{children}</section>}
+function ShopItem({icon,title,detail,price,action,disabled}:{icon:React.ReactNode;title:string;detail:string;price:number;action:()=>void;disabled:boolean}){return <div className="shop-item"><div className="item-icon">{icon}</div><div className="item-copy"><b>{title}</b><span>{detail}</span></div><Button onClick={action} disabled={disabled} className="buy-btn"><Gem size={13}/>{price}</Button></div>}
